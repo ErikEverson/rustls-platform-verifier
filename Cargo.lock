@@ -286,7 +286,7 @@ dependencies = [
  "rustls-pemfile",
  "rustls-pki-types",
  "schannel",
- "security-framework",
+ "security-framework 2.9.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -320,8 +320,8 @@ dependencies = [
  "rustls-native-certs",
  "rustls-platform-verifier-android",
  "rustls-webpki",
- "security-framework",
- "security-framework-sys",
+ "security-framework 2.9.2 (git+https://github.com/kornelski/rust-security-framework.git)",
+ "security-framework-sys 2.9.1 (git+https://github.com/kornelski/rust-security-framework.git)",
  "webpki-roots",
  "winapi",
 ]
@@ -369,8 +369,20 @@ dependencies = [
  "core-foundation",
  "core-foundation-sys",
  "libc",
+ "security-framework-sys 2.9.1 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "security-framework"
+version = "2.9.2"
+source = "git+https://github.com/kornelski/rust-security-framework.git#67a610ec215d207cd158664ab5cf6eca9552ff9f"
+dependencies = [
+ "bitflags",
+ "core-foundation",
+ "core-foundation-sys",
+ "libc",
  "num-bigint",
- "security-framework-sys",
+ "security-framework-sys 2.9.1 (git+https://github.com/kornelski/rust-security-framework.git)",
 ]
 
 [[package]]
@@ -378,6 +390,15 @@ name = "security-framework-sys"
 version = "2.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e932934257d3b408ed8f30db49d85ea163bfe74961f017f405b025af298f0c7a"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
+]
+
+[[package]]
+name = "security-framework-sys"
+version = "2.9.1"
+source = "git+https://github.com/kornelski/rust-security-framework.git#67a610ec215d207cd158664ab5cf6eca9552ff9f"
 dependencies = [
  "core-foundation-sys",
  "libc",
