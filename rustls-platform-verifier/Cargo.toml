@@ -13,7 +13,7 @@ rust-version = "1.64.0"
 name = "rustls_platform_verifier"
 # Note: The `cdylib` specification is for testing only. The shared library
 # is not expected to have a stable API.
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [features]
 # Enables a C interface to use for testing where `cargo` can't be used.
@@ -29,7 +29,7 @@ cert-logging = ["base64"]
 docsrs = ["jni", "once_cell"]
 
 [dependencies]
-rustls = { version = "0.21", features = ["dangerous_configuration", "tls12", "logging"] }
+rustls = { version = "0.21.10", features = ["dangerous_configuration", "tls12", "logging"] }
 log = { version = "0.4" }
 base64 = { version = "0.21", optional = true } # Only used when the `cert-logging` feature is enabled.
 jni = { version = "0.19", default-features = false, optional = true } # Only used during doc generation
