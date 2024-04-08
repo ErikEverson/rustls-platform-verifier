@@ -1,13 +1,20 @@
-use super::{log_server_cert, unsupported_server_name};
+use std::sync::Arc;
+
+use super::log_server_cert;
 use crate::verification::invalid_certificate;
 use core_foundation::date::CFDate;
 use core_foundation_sys::date::kCFAbsoluteTimeIntervalSince1970;
-use rustls::{client::ServerCertVerifier, CertificateError, Error as TlsError};
+use once_cell::sync::OnceCell;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerifier};
+use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider};
+use rustls::pki_types;
+use rustls::{
+    CertificateError, DigitallySignedStruct, Error as TlsError, OtherError, SignatureScheme,
+};
 use security_framework::{
     certificate::SecCertificate, policy::SecPolicy, secure_transport::SslProtocolSide,
     trust::SecTrust,
 };
-use std::time::SystemTime;
 
 mod errors {
     pub(super) use security_framework_sys::base::{
@@ -16,42 +23,41 @@ mod errors {
     };
 }
 
-fn system_time_to_cfdate(time: SystemTime) -> Result<CFDate, TlsError> {
+#[allow(clippy::as_conversions)]
+fn system_time_to_cfdate(time: pki_types::UnixTime) -> Result<CFDate, TlsError> {
     // SAFETY: The interval is defined by macOS externally, but is always present and never modified at runtime
     // since its a global variable.
     //
     // See https://developer.apple.com/documentation/corefoundation/kcfabsolutetimeintervalsince1970.
-    let unix_adjustment = unsafe {
-        #[allow(clippy::as_conversions)]
-        std::time::Duration::from_secs(kCFAbsoluteTimeIntervalSince1970 as u64)
-    };
+    let unix_adjustment = unsafe { kCFAbsoluteTimeIntervalSince1970 as u64 };
 
     // Convert a system timestamp based off the UNIX epoch into the
     // Apple epoch used by all `CFAbsoluteTime` values.
     // Subtracting Durations with sub() will panic on overflow
-    #[allow(clippy::as_conversions)]
-    time.duration_since(SystemTime::UNIX_EPOCH)
-        .map_err(|_| TlsError::FailedToGetCurrentTime)?
+    time.as_secs()
         .checked_sub(unix_adjustment)
         .ok_or(TlsError::FailedToGetCurrentTime)
-        .map(|epoch| CFDate::new(epoch.as_secs() as f64))
+        .map(|epoch| CFDate::new(epoch as f64))
 }
 
 /// A TLS certificate verifier that utilizes the Apple platform certificate facilities.
-#[derive(Default)]
+#[derive(Debug)]
 pub struct Verifier {
     /// Testing only: The root CA certificate to trust.
     #[cfg(any(test, feature = "ffi-testing", feature = "dbg"))]
     test_only_root_ca_override: Option<Vec<u8>>,
+    default_provider: OnceCell<Arc<CryptoProvider>>,
 }
 
 impl Verifier {
     /// Creates a new instance of a TLS certificate verifier that utilizes the
-    /// macOS certificate facilities.
+    /// macOS certificate facilities. The rustls default [`CryptoProvider`]
+    /// must be set before the verifier can be used.
     pub fn new() -> Self {
         Self {
             #[cfg(any(test, feature = "ffi-testing", feature = "dbg"))]
             test_only_root_ca_override: None,
+            default_provider: OnceCell::new(),
         }
     }
 
@@ -60,19 +66,30 @@ impl Verifier {
     pub(crate) fn new_with_fake_root(root: &[u8]) -> Self {
         Self {
             test_only_root_ca_override: Some(root.into()),
+            default_provider: OnceCell::new(),
         }
+    }
+
+    fn get_provider(&self) -> &CryptoProvider {
+        self.default_provider
+            .get_or_init(|| {
+                rustls::crypto::CryptoProvider::get_default()
+                    .expect("rustls default CryptoProvider not set")
+                    .clone()
+            })
+            .as_ref()
     }
 
     fn verify_certificate(
         &self,
-        end_entity: &rustls::Certificate,
-        intermediates: &[rustls::Certificate],
+        end_entity: &pki_types::CertificateDer<'_>,
+        intermediates: &[pki_types::CertificateDer<'_>],
         server_name: &str,
         ocsp_response: Option<&[u8]>,
-        now: SystemTime,
+        now: pki_types::UnixTime,
     ) -> Result<(), TlsError> {
-        let certificates: Vec<SecCertificate> = std::iter::once(end_entity.0.as_slice())
-            .chain(intermediates.iter().map(|cert| cert.0.as_slice()))
+        let certificates: Vec<SecCertificate> = std::iter::once(end_entity.as_ref())
+            .chain(intermediates.iter().map(|cert| cert.as_ref()))
             .map(|cert| {
                 SecCertificate::from_der(cert)
                     .map_err(|_| TlsError::InvalidCertificate(CertificateError::BadEncoding))
@@ -164,7 +181,7 @@ impl Verifier {
                         CertificateError::UnknownIssuer,
                     )),
                     errors::errSecInvalidExtendedKeyUsage => Ok(TlsError::InvalidCertificate(
-                        CertificateError::Other(std::sync::Arc::new(super::EkuError)),
+                        CertificateError::Other(OtherError(std::sync::Arc::new(super::EkuError))),
                     )),
                     errors::errSecCertificateRevoked => {
                         Ok(TlsError::InvalidCertificate(CertificateError::Revoked))
@@ -183,27 +200,17 @@ impl Verifier {
 impl ServerCertVerifier for Verifier {
     fn verify_server_cert(
         &self,
-        end_entity: &rustls::Certificate,
-        intermediates: &[rustls::Certificate],
-        server_name: &rustls::ServerName,
-        _scts: &mut dyn Iterator<Item = &[u8]>,
+        end_entity: &pki_types::CertificateDer<'_>,
+        intermediates: &[pki_types::CertificateDer<'_>],
+        server_name: &pki_types::ServerName,
         ocsp_response: &[u8],
-        now: SystemTime,
-    ) -> Result<rustls::client::ServerCertVerified, TlsError> {
+        now: pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, TlsError> {
         log_server_cert(end_entity);
 
         // Convert IP addresses to name strings to ensure match check on leaf certificate.
         // Ref: https://developer.apple.com/documentation/security/1392592-secpolicycreatessl
-        let ip_name;
-
-        let server = match server_name {
-            rustls::ServerName::DnsName(name) => name.as_ref(),
-            rustls::ServerName::IpAddress(addr) => {
-                ip_name = addr.to_string();
-                &ip_name
-            }
-            _ => return Err(unsupported_server_name()),
-        };
+        let server = server_name.to_str();
 
         let ocsp_data = if !ocsp_response.is_empty() {
             Some(ocsp_response)
@@ -211,8 +218,8 @@ impl ServerCertVerifier for Verifier {
             None
         };
 
-        match self.verify_certificate(end_entity, intermediates, server, ocsp_data, now) {
-            Ok(()) => Ok(rustls::client::ServerCertVerified::assertion()),
+        match self.verify_certificate(end_entity, intermediates, &server, ocsp_data, now) {
+            Ok(()) => Ok(rustls::client::danger::ServerCertVerified::assertion()),
             Err(e) => {
                 // This error only tells us what the system errored with, so it doesn't leak anything
                 // sensitive.
@@ -220,5 +227,45 @@ impl ServerCertVerifier for Verifier {
                 Err(e)
             }
         }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &pki_types::CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &self.get_provider().signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &pki_types::CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &self.get_provider().signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.get_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
+impl Default for Verifier {
+    fn default() -> Self {
+        Self::new()
     }
 }
