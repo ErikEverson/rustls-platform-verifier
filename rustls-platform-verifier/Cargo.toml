@@ -9,17 +9,11 @@ license = "MIT OR Apache-2.0"
 edition = "2021"
 rust-version = "1.64.0"
 
-[target.'cfg(not(target_os = "tvos"))'.lib]
+[lib]
 name = "rustls_platform_verifier"
 # Note: The `cdylib` specification is for testing only. The shared library
 # is not expected to have a stable API.
 crate-type = ["cdylib", "rlib"]
-
-[target.'cfg(target_os = "tvos")'.lib]
-name = "rustls_platform_verifier"
-# Note: The `cdylib` specification is for testing only. The shared library
-# is not expected to have a stable API.
-crate-type = ["rlib"]
 
 [features]
 # Enables a C interface to use for testing where `cargo` can't be used.
