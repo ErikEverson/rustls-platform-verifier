@@ -35,9 +35,11 @@
 //! Thus we don't expect these tests to be flaky w.r.t. that, except for
 //! potentially poor performance.     
 use super::TestCase;
-use crate::tests::{assert_cert_error_eq, verification_time};
+use crate::tests::{assert_cert_error_eq, ensure_global_state, verification_time};
 use crate::Verifier;
-use rustls::{client::ServerCertVerifier, CertificateError, Error as TlsError};
+use rustls::client::danger::ServerCertVerifier;
+use rustls::pki_types;
+use rustls::{CertificateError, Error as TlsError};
 use std::convert::TryFrom;
 
 // This is the certificate chain presented by one server for
@@ -116,23 +118,17 @@ macro_rules! no_error {
 }
 
 fn real_world_test<E: std::error::Error>(test_case: &TestCase<E>) {
-    log::info!("verifying {:?}", test_case.expected_result);
+    ensure_global_state();
+    log::info!(
+        "verifying ref ID {:?} expected {:?}",
+        test_case.reference_id,
+        test_case.expected_result
+    );
 
     // On BSD systems openssl-probe fails to find the system CA bundle,
     // so we must provide extra roots from webpki-roots.
     #[cfg(target_os = "freebsd")]
-    let verifier = Verifier::new_with_extra_roots(
-        webpki_roots::TLS_SERVER_ROOTS
-            .iter()
-            .map(|ta| {
-                rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-                    ta.subject,
-                    ta.spki,
-                    ta.name_constraints,
-                )
-            })
-            .collect::<Vec<_>>(),
-    );
+    let verifier = Verifier::new_with_extra_roots(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
 
     #[cfg(not(target_os = "freebsd"))]
     let verifier = Verifier::new();
@@ -140,12 +136,12 @@ fn real_world_test<E: std::error::Error>(test_case: &TestCase<E>) {
     let mut chain = test_case
         .chain
         .iter()
-        .map(|bytes| rustls::Certificate(bytes.to_vec()));
+        .map(|bytes| pki_types::CertificateDer::from(*bytes));
 
     let end_entity_cert = chain.next().unwrap();
-    let intermediates: Vec<rustls::Certificate> = chain.collect();
+    let intermediates: Vec<pki_types::CertificateDer<'_>> = chain.collect();
 
-    let server_name = rustls::client::ServerName::try_from(test_case.reference_id).unwrap();
+    let server_name = pki_types::ServerName::try_from(test_case.reference_id).unwrap();
 
     let stapled_ocsp = test_case.stapled_ocsp.unwrap_or(&[]);
 
@@ -154,7 +150,6 @@ fn real_world_test<E: std::error::Error>(test_case: &TestCase<E>) {
             &end_entity_cert,
             &intermediates,
             &server_name,
-            &mut std::iter::empty(),
             stapled_ocsp,
             test_case.verification_time,
         )
