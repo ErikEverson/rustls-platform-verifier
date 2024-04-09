@@ -33,6 +33,7 @@ jobs:
       - name: Clippy (tvOS)
         if: matrix.os == 'macos-latest'
         run: |
+          rustup component add rust-src --toolchain nightly-x86_64-apple-darwin
           cargo +nightly -Zbuild-std check --target aarch64-apple-tvos
           cargo +nightly -Zbuild-std check --target aarch64-apple-tvos-sim
           cargo +nightly -Zbuild-std check --target x86_64-apple-tvos
