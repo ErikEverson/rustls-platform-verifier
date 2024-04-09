@@ -50,6 +50,13 @@ jobs:
           rustup target add x86_64-apple-ios
           cargo clippy-ci --target x86_64-apple-ios
 
+      - name: Clippy (tvOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          cargo +nightly -Zbuild-std check --target aarch64-apple-tvos
+          cargo +nightly -Zbuild-std check --target aarch64-apple-tvos-sim
+          cargo +nightly -Zbuild-std check --target x86_64-apple-tvos
+
       # TODO: Should WASM be checked in CI? If so, with what tooling?
       # - name: Clippy (WASM)
       #   if: matrix.os == 'ubuntu-latest'
