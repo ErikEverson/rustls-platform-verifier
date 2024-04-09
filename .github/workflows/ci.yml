@@ -29,6 +29,8 @@ jobs:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
 
       - name: Clippy (tvOS)
         if: matrix.os == 'macos-latest'
