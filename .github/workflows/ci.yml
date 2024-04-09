@@ -16,6 +16,29 @@ env:
   RUSTFLAGS: -D warnings -F unused_must_use
 
 jobs:
+  check:
+    name: Check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: check
+
+      - name: Clippy (tvOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          cargo +nightly -Zbuild-std check --target aarch64-apple-tvos
+          cargo +nightly -Zbuild-std check --target aarch64-apple-tvos-sim
+          cargo +nightly -Zbuild-std check --target x86_64-apple-tvos
+
   clippy:
     name: Clippy
     runs-on: ${{ matrix.os }}
@@ -49,13 +72,6 @@ jobs:
         run: |
           rustup target add x86_64-apple-ios
           cargo clippy-ci --target x86_64-apple-ios
-
-      - name: Clippy (tvOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          cargo +nightly -Zbuild-std check --target aarch64-apple-tvos
-          cargo +nightly -Zbuild-std check --target aarch64-apple-tvos-sim
-          cargo +nightly -Zbuild-std check --target x86_64-apple-tvos
 
       # TODO: Should WASM be checked in CI? If so, with what tooling?
       # - name: Clippy (WASM)
