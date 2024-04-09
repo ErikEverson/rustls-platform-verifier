@@ -17,7 +17,7 @@ env:
 
 jobs:
   check:
-    name: Clippy
+    name: Clippy (nightly)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -39,7 +39,7 @@ jobs:
           cargo +nightly clippy -Zbuild-std --target x86_64-apple-tvos
 
   clippy:
-    name: Clippy
+    name: Clippy (stable)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
