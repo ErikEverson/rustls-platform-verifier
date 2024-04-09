@@ -37,6 +37,8 @@ jobs:
         run: |
           rustup component add rust-src --toolchain nightly-x86_64-apple-darwin
           cargo +nightly clippy-ci -Zbuild-std --target aarch64-apple-tvos
+          cargo +nightly clippy-ci -Zbuild-std --target aarch64-apple-tvos-sim
+          cargo +nightly clippy-ci -Zbuild-std --target x86_64-apple-tvos
 
   clippy:
     name: Clippy (stable)
